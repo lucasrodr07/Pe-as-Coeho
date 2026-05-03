@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Helvetica Neue", Arial, sans-serif;
+  
+  --color-brand: #1e293b;
+  --color-brand-light: #334155;
+  --color-accent: #3b82f6;
+  
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-900: #1e293b;
+
+  --radius-card: 12px;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.1);
+  --shadow-card-hover: 0 4px 6px rgba(0,0,0,0.05);
+}
+
+@layer base {
+  body {
+    @apply bg-slate-100 text-slate-900 font-sans;
+  }
+}
+
+@layer components {
+  .sleek-card {
+    @apply bg-white rounded-[12px] shadow-[0_1px_3px_rgba(0,0,0,0.1)] p-4 flex flex-col relative transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_6px_rgba(0,0,0,0.05)];
+  }
+
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-[4px] border border-white/30 rounded-[12px] p-4 shadow-sm;
+  }
+
+  .kpi-label {
+    @apply text-[0.75rem] text-slate-500 uppercase tracking-wider font-semibold mb-1;
+  }
+
+  .kpi-value {
+    @apply text-[1.75rem] font-bold leading-tight;
+  }
+
+  .trend-up {
+    @apply text-success text-[0.75rem] font-semibold;
+  }
+
+  .trend-down {
+    @apply text-danger text-[0.75rem] font-semibold;
+  }
+
+  .sleek-pill {
+    @apply px-2 py-1 rounded-full text-[0.7rem] bg-slate-100 text-slate-600 font-semibold;
+  }
+}

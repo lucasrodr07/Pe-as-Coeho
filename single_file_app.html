@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peças Coelho - Industrial Dashboard</title>
+    <!-- Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://unpkg.com/date-fns@2.30.0/dist/date-fns.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        
+        :root {
+            --brand: #1e293b;
+            --brand-light: #334155;
+            --accent: #f8fafc;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9;
+            color: #1e293b;
+        }
+
+        /* Sleek Theme Classes */
+        .sleek-card {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            border: 1px solid #e2e8f0;
+            padding: 24px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 16px;
+            padding: 24px;
+        }
+
+        .kpi-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #94a3b8;
+        }
+
+        .kpi-value {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            line-height: 1;
+        }
+
+        .sleek-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        .trend-up {
+            font-size: 10px;
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        /* Print Styles */
+        @media print {
+            .no-print { display: none !important; }
+            #print-area { display: block !important; }
+            body { background: white; }
+            @page { margin: 10mm; size: A4; }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        const { 
+            ResponsiveContainer, PieChart, Pie, Cell, 
+            BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+            LineChart, Line
+        } = Recharts;
+        const { motion, AnimatePresence } = FramerMotion;
+
+        // --- UTILS & CONSTANTS ---
+        const cn = (...classes) => classes.filter(Boolean).join(' ');
+
+        const formatDate = (dateStr) => {
+            if (!dateStr) return 'N/A';
+            const [y, m, d] = dateStr.split('-');
+            return `${d}/${m}/${y}`;
+        };
+
+        const getStatus = (dateStr) => {
+            const today = new Date();
+            const target = new Date(dateStr);
+            const diff = (target - today) / (1000 * 60 * 60 * 24);
+            if (diff < 0) return 'vermelho';
+            if (diff <= 15) return 'amarelo';
+            return 'verde';
+        };
+
+        const getDaysRemaining = (dateStr) => {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const target = new Date(dateStr);
+            target.setHours(0,0,0,0);
+            return Math.floor((target - today) / (1000 * 60 * 60 * 24));
+        };
+
+        // --- FIREBASE SETUP ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCvOc1lma8aCUoBpnpcvaxzkQYNJoCmddQ",
+            authDomain: "painel-pecas-coelho.firebaseapp.com",
+            projectId: "painel-pecas-coelho",
+            storageBucket: "painel-pecas-coelho.firebasestorage.app",
+            messagingSenderId: "763832298298",
+            appId: "1:763832298298:web:3adfc65dddef52c927fe03"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+
+        // --- COMPONENTS ---
+
+        function NavItem({ icon: Icon, label, active, onClick, badge }) {
+            return (
+                <button
+                    onClick={onClick}
+                    className={cn(
+                        "w-full flex items-center gap-3 px-6 py-3.5 text-[13px] font-bold transition-all group border-l-4",
+                        active 
+                            ? "bg-slate-50 text-slate-900 border-slate-900" 
+                            : "text-slate-400 border-transparent hover:bg-slate-50 hover:text-slate-600"
+                    )}
+                >
+                    <Icon size={18} className={active ? "text-slate-900" : "text-slate-300 group-hover:text-slate-400"} />
+                    <span className="tracking-tight">{label}</span>
+                    {badge !== undefined && (
+                        <span className="ml-auto bg-slate-100 text-slate-500 text-[9px] font-black px-2 py-0.5 rounded-md border border-slate-200">
+                            {badge}
+                        </span>
+                    )}
+                </button>
+            );
+        }
+
+        // --- DASHBOARD ---
+        function Dashboard({ areas, pecas, loading, onNavigate }) {
+            const stats = useMemo(() => {
+                let verde = 0, amarelo = 0, vermelho = 0;
+                pecas.forEach(p => {
+                    const s = getStatus(p.dataProximaValidacao);
+                    if (s === 'verde') verde++;
+                    else if (s === 'amarelo') amarelo++;
+                    else vermelho++;
+                });
+                return { total: pecas.length, verde, amarelo, vermelho };
+            }, [pecas]);
+
+            const donutData = [
+                { name: 'Conforme', value: stats.verde, color: '#10b981' },
+                { name: 'Atenção', value: stats.amarelo, color: '#f59e0b' },
+                { name: 'Crítica', value: stats.vermelho, color: '#ef4444' },
+            ].filter(d => d.value > 0);
+
+            const areaData = useMemo(() => {
+                return areas.map(a => ({
+                    name: a.nome,
+                    total: pecas.filter(p => p.areaId === a.id).length
+                })).sort((a,b) => b.total - a.total).slice(0, 8);
+            }, [areas, pecas]);
+
+            const criticalPecas = useMemo(() => {
+                return pecas
+                    .map(p => ({ ...p, days: getDaysRemaining(p.dataProximaValidacao), status: getStatus(p.dataProximaValidacao) }))
+                    .filter(p => p.status !== 'verde')
+                    .sort((a, b) => a.days - b.days)
+                    .slice(0, 10);
+            }, [pecas]);
+
+            const complianceRate = stats.total > 0 ? (stats.verde / stats.total) * 100 : 0;
+
+            if (loading) return (
+                <div className="flex flex-col items-center justify-center py-32 gap-4">
+                    <div className="w-12 h-12 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
+                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Sincronizando Sistema...</span>
+                </div>
+            );
+
+            return (
+                <div className="space-y-8 animate-in fade-in duration-500">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div>
+                            <h2 className="text-xl font-extrabold text-slate-800 tracking-tight">Dashboard Operacional</h2>
+                            <p className="kpi-label mt-1">Visão analítica em tempo real</p>
+                        </div>
+                        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200">
+                            {['Hoje', 'Mês'].map(p => <button key={p} className={cn("px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all", p === 'Hoje' ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-600")}>{p}</button>)}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <KPICard title="Estoque Total" value={stats.total} icon="Package" color="slate" />
+                        <KPICard title="Conformidade" value={`${complianceRate.toFixed(1)}%`} icon="CheckCircle" color="green" />
+                        <KPICard title="Em Atenção" value={stats.amarelo} icon="Clock" color="yellow" />
+                        <KPICard title="Críticos" value={stats.vermelho} icon="AlertTriangle" color="red" />
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                        <div className="xl:col-span-2 space-y-8">
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="sleek-card">
+                                    <span className="kpi-label mb-6 block">Status Global</span>
+                                    <div className="h-48 relative">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie data={donutData} innerRadius={60} outerRadius={80} paddingAngle={4} dataKey="value">
+                                                    {donutData.map((e,i) => <Cell key={i} fill={e.color} />)}
+                                                </Pie>
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                            <span className="text-2xl font-black text-slate-800">{stats.total}</span>
+                                            <span className="kpi-label">PESO</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="sleek-card">
+                                    <span className="kpi-label mb-6 block">Peças por Setor</span>
+                                    <div className="h-48">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={areaData}>
+                                                <XAxis dataKey="name" hide />
+                                                <Bar dataKey="total" fill="#1e293b" radius={[4, 4, 0, 0]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                             </div>
+                             <div className="sleek-card flex items-center justify-between p-8">
+                                <div>
+                                    <h4 className="text-sm font-bold text-slate-800 mb-1">Manutenção Preditiva</h4>
+                                    <p className="text-xs text-slate-400 font-medium leading-relaxed">Existem 12 novas validações agendadas para os próximos 7 dias úteis.</p>
+                                </div>
+                                <button className="bg-slate-900 text-white px-6 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-md">Ver Agenda</button>
+                             </div>
+                        </div>
+                        <div className="glass-card flex flex-col h-full min-h-[400px]">
+                            <div className="flex items-center justify-between mb-8">
+                                <span className="kpi-label">Peças Críticas</span>
+                                <span className="sleek-pill bg-rose-50 text-rose-600">Alerta Máximo</span>
+                            </div>
+                            <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2">
+                                {criticalPecas.map(p => (
+                                    <div key={p.id} className="group border-b border-white/50 pb-4 last:border-0 cursor-pointer" onClick={() => onNavigate({ search: p.pecaCoelho })}>
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h5 className="text-[13px] font-bold text-slate-800 ">{p.pecaCoelho}</h5>
+                                                <p className="text-[10px] font-medium text-slate-400">{p.nome}</p>
+                                            </div>
+                                            <span className={cn("sleek-pill", p.days < 0 ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700")}>
+                                                {p.days < 0 ? 'ATRASADO' : `${p.days}d`}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function KPICard({ title, value, icon, color }) {
+            const Icon = lucide[icon];
+            const colors = {
+                slate: "bg-slate-900 text-white shadow-slate-200",
+                green: "bg-emerald-50 text-emerald-600 shadow-emerald-100",
+                yellow: "bg-amber-50 text-amber-600 shadow-amber-100",
+                red: "bg-rose-50 text-rose-600 shadow-rose-100"
+            };
+            return (
+                <div className="sleek-card group hover:-translate-y-1">
+                    <div className="flex justify-between items-start mb-6">
+                        <span className="kpi-label">{title}</span>
+                        <div className={cn("p-2 rounded-lg transition-all", colors[color])}>
+                            <Icon size={18} />
+                        </div>
+                    </div>
+                    <div className="kpi-value text-slate-800">{value}</div>
+                    <div className="mt-4 flex items-center gap-2">
+                        <span className="trend-up">↑ 4.2%</span>
+                        <span className="text-[9px] font-bold text-slate-300 uppercase">vs. ontem</span>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- AREAS ---
+        function Areas({ areas, pecas }) {
+            return (
+               <div className="space-y-8">
+                  <div className="flex justify-between items-center">
+                    <div>
+                        <h2 className="text-xl font-extrabold text-slate-800 tracking-tight">Setores Industriais</h2>
+                        <p className="kpi-label mt-1">Gestão de áreas de trabalho</p>
+                    </div>
+                    <button className="bg-slate-900 text-white px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-md">Nova Área</button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                      {areas.map(a => (
+                          <div key={a.id} className="sleek-card group hover:-translate-y-1">
+                             <div className="flex justify-between mb-6">
+                                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                   <lucide.Map size={20} className="text-slate-400" />
+                                </div>
+                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-slate-900"><lucide.Edit3 size={16} /></button>
+                                    <button className="p-2 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-600"><lucide.Trash2 size={16} /></button>
+                                </div>
+                             </div>
+                             <h4 className="text-base font-bold text-slate-800 mb-1">{a.nome}</h4>
+                             <p className="text-[12px] text-slate-400 font-medium leading-relaxed line-clamp-2 mb-6">{a.descricao || 'Sem descrição cadastrada.'}</p>
+                             <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
+                                <span className="kpi-label text-[9px]">{formatDate(a.dataCriacao)}</span>
+                                <div className="sleek-pill">{pecas.filter(p => p.areaId === a.id).length} Peças</div>
+                             </div>
+                          </div>
+                      ))}
+                  </div>
+               </div>
+            );
+        }
+
+        // --- PECAS ---
+        function Pecas({ areas, pecas, initialSearch, initialStatus }) {
+            const [searchTerm, setSearchTerm] = useState(initialSearch || '');
+            const filtered = pecas.filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()) || p.pecaCoelho.toLowerCase().includes(searchTerm.toLowerCase()));
+            
+            return (
+                <div className="space-y-8">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-xl font-extrabold text-slate-800 tracking-tight">Peças Coelho</h2>
+                            <p className="kpi-label mt-1">Registros técnicos e rastreabilidade</p>
+                        </div>
+                        <button className="bg-slate-900 text-white px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-md">+ Nova Peça</button>
+                    </div>
+
+                    <div className="sleek-card p-4 flex flex-col md:flex-row gap-4">
+                        <div className="relative flex-1">
+                            <lucide.Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                            <input 
+                                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-slate-100" 
+                                placeholder="Buscar nos registros..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <select className="px-4 py-2.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600">
+                            <option>Todas Áreas</option>
+                        </select>
+                    </div>
+
+                    <div className="sleek-card p-0 overflow-hidden border-none shadow-xl">
+                        <table className="w-full text-left">
+                            <thead>
+                                <tr className="bg-slate-900 text-white">
+                                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Código PC</th>
+                                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Nome da Peça</th>
+                                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Área</th>
+                                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Status</th>
+                                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {filtered.map(p => {
+                                    const status = getStatus(p.dataProximaValidacao);
+                                    return (
+                                        <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="px-6 py-4 font-mono font-bold text-slate-900 text-[11px]">{p.pecaCoelho}</td>
+                                            <td className="px-6 py-4">
+                                                <div className="text-[13px] font-bold text-slate-800 leading-none">{p.nome}</div>
+                                                <div className="text-[10px] text-slate-400 font-medium mt-1 uppercase tracking-tighter">PN: {p.partNumber}</div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className="sleek-pill">{areas.find(a => a.id === p.areaId)?.nome || 'SETOR-X'}</span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className={cn("inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase", status === 'verde' ? "bg-emerald-50 text-emerald-600" : status === 'amarelo' ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600")}>
+                                                    <div className={cn("w-1 h-1 rounded-full", status === 'verde' ? "bg-emerald-600" : status === 'amarelo' ? "bg-amber-600" : "bg-rose-600")} />
+                                                    {status}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <button className="p-2 text-slate-300 hover:text-slate-800 transition-colors"><lucide.MoreVertical size={16} /></button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- ETIQUETAS ---
+        function Etiquetas({ pecas }) {
+            return (
+                <div className="text-center py-20 space-y-6">
+                    <lucide.Printer size={64} className="mx-auto text-slate-200" />
+                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Gerador de Etiquetas</h3>
+                    <p className="max-w-md mx-auto text-sm text-slate-400 font-medium">Selecione as peças para gerar as etiquetas de conformidade física para o ambiente fabril.</p>
+                    <button className="bg-slate-900 text-white px-8 py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl">Iniciar Fluxo de Impressão</button>
+                </div>
+            );
+        }
+
+        // --- APP SHELL ---
+        function App() {
+            const [activePage, setActivePage] = useState('dashboard');
+            const [pecasFilter, setPecasFilter] = useState({ search: '', status: '' });
+            const [sidebarOpen, setSidebarOpen] = useState(true);
+            const [areas, setAreas] = useState([]);
+            const [pecas, setPecas] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const unsubAreas = db.collection('areas').onSnapshot(snap => {
+                    setAreas(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
+                const unsubPecas = db.collection('pecas').onSnapshot(snap => {
+                    setPecas(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    setLoading(false);
+                });
+                return () => { unsubAreas(); unsubPecas(); };
+            }, []);
+
+            const navigateToPecas = (f) => {
+                if (f) setPecasFilter(f);
+                setActivePage('pecas');
+            };
+
+            return (
+                <div className="flex min-h-screen">
+                    <aside className={cn("fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform lg:translate-x-0 overflow-hidden flex flex-col shadow-sm", !sidebarOpen && "-translate-x-full")}>
+                        <div className="p-8 border-b border-slate-50 flex items-center gap-4">
+                            <div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black">PC</div>
+                            <div>
+                                <h1 className="text-sm font-black text-slate-900 leading-tight uppercase tracking-tight">Peças Coelho</h1>
+                                <span className="kpi-label text-[9px]">Industrial v2.4</span>
+                            </div>
+                        </div>
+                        <nav className="flex-1 py-6">
+                            <NavItem icon={lucide.LayoutDashboard} label="Dashboard" active={activePage === 'dashboard'} onClick={() => setActivePage('dashboard')} />
+                            <NavItem icon={lucide.Map} label="Setores" active={activePage === 'areas'} onClick={() => setActivePage('areas')} badge={areas.length} />
+                            <NavItem icon={lucide.CircleDot} label="Registros" active={activePage === 'pecas'} onClick={() => setActivePage('pecas')} badge={pecas.length} />
+                            <NavItem icon={lucide.Tag} label="Etiquetas" active={activePage === 'etiquetas'} onClick={() => setActivePage('etiquetas')} />
+                        </nav>
+                        <div className="p-8 bg-slate-50 text-center">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">© 2026 Coelho S.A.</span>
+                        </div>
+                    </aside>
+
+                    <main className={cn("flex-1 flex flex-col transition-all", sidebarOpen ? "lg:ml-64" : "ml-0")}>
+                        <header className="h-[70px] bg-white border-b border-slate-100 flex items-center justify-between px-8 sticky top-0 z-40">
+                            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-slate-50 rounded-lg lg:hidden">
+                                <lucide.Menu size={20} />
+                            </button>
+                            <div className="flex items-center gap-3">
+                                <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Industrial Console</span>
+                                <span className="w-1 h-3 bg-slate-100 rounded-full"></span>
+                                <span className="text-xs font-bold text-slate-800 capitalize tracking-tight">{activePage}</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="text-right hidden sm:block">
+                                    <div className="text-[11px] font-black text-slate-800 uppercase tracking-tighter">Lucas Rodrigues</div>
+                                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Qualidade • Turno A</div>
+                                </div>
+                                <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-[10px] font-black text-white">LR</div>
+                            </div>
+                        </header>
+
+                        <div className="p-10 max-w-[1600px] mx-auto w-full">
+                            <AnimatePresence mode="wait">
+                                <motion.div key={activePage} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                                    {activePage === 'dashboard' && <Dashboard areas={areas} pecas={pecas} loading={loading} onNavigate={navigateToPecas} />}
+                                    {activePage === 'areas' && <Areas areas={areas} pecas={pecas} />}
+                                    {activePage === 'pecas' && <Pecas areas={areas} pecas={pecas} initialSearch={pecasFilter.search} initialStatus={pecasFilter.status} />}
+                                    {activePage === 'etiquetas' && <Etiquetas pecas={pecas} />}
+                                </motion.div>
+                            </AnimatePresence>
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
